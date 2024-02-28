@@ -1,0 +1,506 @@
+zabbix_export:
+  version: '6.4'
+  template_groups:
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  host_groups:
+    - uuid: b20e2f933bd44b9d80c44887a73cf767
+      name: Meshtastic/Nodes
+  templates:
+    - uuid: 3ada5f94e2784e26a349ef52ada80597
+      template: 'Template App Meshtastic'
+      name: 'Template App Meshtastic'
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: e5b7ade3363849f987875f70ba1c58b3
+          name: 'Meshtastic MQTT JSON'
+          type: DEPENDENT
+          key: mesh.json
+          delay: '0'
+          trends: '0'
+          value_type: TEXT
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - '\"(\{.+)\"'
+                - \1
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var output = '[';
+                  output += value;
+                  output += ']';
+                  return output;
+          master_item:
+            key: 'mqtt.get[{$MQTTBROKER},{$MQTTTOPIC},{$MQTTUSER},{$MQTTPASSWORD}]'
+          tags:
+            - tag: meshtastic
+              value: 'mqtt json'
+        - uuid: a5c82ba8fa9b45be81db3dba9915ccfc
+          name: 'Meshtastic MQTT status'
+          type: DEPENDENT
+          key: mesh.status
+          delay: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'Status messages from msh/+/2/stat'
+          preprocessing:
+            - type: MATCHES_REGEX
+              parameters:
+                - (msh\/.+\/2\/stat\/)
+              error_handler: DISCARD_VALUE
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var output = '[';
+                  output += value;
+                  output += ']';
+                  return output;
+          master_item:
+            key: 'mqtt.get[{$MQTTBROKER},{$MQTTTOPIC},{$MQTTUSER},{$MQTTPASSWORD}]'
+          tags:
+            - tag: meshtastic
+              value: 'mqtt status'
+        - uuid: 512e5983a4f541c39e1cc9298d320f3b
+          name: 'Meshtastic MQTT raw'
+          type: ZABBIX_ACTIVE
+          key: 'mqtt.get[{$MQTTBROKER},{$MQTTTOPIC},{$MQTTUSER},{$MQTTPASSWORD}]'
+          delay: '0'
+          history: 1d
+          trends: '0'
+          value_type: TEXT
+          preprocessing:
+            - type: STR_REPLACE
+              parameters:
+                - \
+                - ''
+            - type: MATCHES_REGEX
+              parameters:
+                - '{\"msh\/\w+\/2\/(stat|json)'
+              error_handler: DISCARD_VALUE
+          tags:
+            - tag: meshtastic
+              value: 'mqtt raw'
+      discovery_rules:
+        - uuid: 5e1dd96ca4f74a9490e47961967cc0c7
+          name: 'Meshtastic node info discovery'
+          type: DEPENDENT
+          key: mesh.info.disc
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#TYPE}'
+                value: ^nodeinfo
+                formulaid: A
+          item_prototypes:
+            - uuid: 5bc1a8a947e949fab012815222b830b2
+              name: '{#NODE} hardware'
+              type: DEPENDENT
+              key: 'mesh.nodeHardware[{#NODE}]'
+              delay: '0'
+              history: 10d
+              valuemap:
+                name: Hardware
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\"from\":{#NODEDEC}'
+                  error_handler: DISCARD_VALUE
+                - type: JSONPATH
+                  parameters:
+                    - '$[0].payload.hardware'
+              master_item:
+                key: mesh.json
+              tags:
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+            - uuid: f331bea71e084c1597f572ed2d538b93
+              name: '{#NODE} long name'
+              type: DEPENDENT
+              key: 'mesh.nodeLong[{#NODE}]'
+              delay: '0'
+              history: 10d
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\"from\":{#NODEDEC}'
+                  error_handler: DISCARD_VALUE
+                - type: JSONPATH
+                  parameters:
+                    - '$[0].payload.longname'
+              master_item:
+                key: mesh.json
+              tags:
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+            - uuid: 89e49bb282864df4a4eece949bb87c4b
+              name: '{#NODE} short name'
+              type: DEPENDENT
+              key: 'mesh.nodeShort[{#NODE}]'
+              delay: '0'
+              history: 10d
+              trends: '0'
+              value_type: TEXT
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\"from\":{#NODEDEC}'
+                  error_handler: DISCARD_VALUE
+                - type: JSONPATH
+                  parameters:
+                    - '$[0].payload.shortname'
+              master_item:
+                key: mesh.json
+              tags:
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+          master_item:
+            key: mesh.json
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var obj = JSON.parse(value);
+                  var lld = [];
+                  var row = {};
+                  row["{#NODE}"] = obj[0]["payload"]["id"]
+                  row["{#NODEDEC}"] = obj[0]["from"]
+                  row["{#TYPE}"] = obj[0]["type"]
+                  lld.push(row);
+                  return JSON.stringify(lld);
+        - uuid: 2443f6d8dd9743dc893907be41e8ab6e
+          name: 'Meshtastic node position discovery'
+          type: DEPENDENT
+          key: mesh.pos.disc
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#TYPE}'
+                value: position
+                formulaid: A
+          lifetime: 5d
+          host_prototypes:
+            - uuid: 97f6d579595c4ca5bb44343598d0b3a3
+              host: 'Meshtastic node {#NODEHEX}'
+              name: 'Meshtastic node {#NODE}'
+              group_links:
+                - group:
+                    name: Meshtastic/Nodes
+              templates:
+                - name: 'Template App Meshtastic Node'
+              macros:
+                - macro: '{$MESHLAT}'
+                  value: '{#LAT}'
+                - macro: '{$MESHLONG}'
+                  value: '{#LONG}'
+                - macro: '{$NODE}'
+                  value: '{#NODE}'
+              tags:
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+              inventory_mode: AUTOMATIC
+          master_item:
+            key: mesh.json
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var obj = JSON.parse(value);
+                  var lld = [];
+                  var row = {};
+                  row["{#NODE}"] ="!"
+                  row["{#NODE}"] += obj[0]["from"].toString(16);
+                  row["{#NODEHEX}"] = obj[0]["from"].toString(16);
+                  row["{#LAT}"] = (obj[0]["payload"]["latitude_i"] * 0.0000001).toFixed(5);
+                  row["{#LONG}"] = (obj[0]["payload"]["longitude_i"] * 0.0000001).toFixed(5);
+                  row["{#TYPE}"] = obj[0]["type"]
+                  lld.push(row);
+                  return JSON.stringify(lld);
+        - uuid: d249e6e4a4e44e3a8f5f414bd735e166
+          name: 'Meshtastic node status discovery'
+          type: DEPENDENT
+          key: mesh.status.disc
+          delay: '0'
+          item_prototypes:
+            - uuid: d6ab5477c08348ba848f7b41f4055633
+              name: '{#NODE} status'
+              type: DEPENDENT
+              key: 'mesh.node[{#NODE}]'
+              delay: '0'
+              history: 10d
+              trends: 90d
+              valuemap:
+                name: Status
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\/stat\/{#NODE}'
+                - type: REGEX
+                  parameters:
+                    - '(![\w]+)(\":\")(online|offline)'
+                    - \3
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      if(value == "online"){
+                      return 1;
+                      }else{
+                      return 0;
+                      }
+              master_item:
+                key: mesh.status
+              tags:
+                - tag: meshtastic
+                  value: 'node status'
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+              trigger_prototypes:
+                - uuid: 3a2790d82fc14646ab6dd12194d0ac9f
+                  expression: 'avg(/Template App Meshtastic/mesh.node[{#NODE}],8h)=0 and last(/Template App Meshtastic/mesh.node[{#NODE}])=0'
+                  name: '{#NODE} offline for 8h'
+                  priority: WARNING
+                  tags:
+                    - tag: meshtastic
+                      value: 'node {#NODE}'
+          master_item:
+            key: mesh.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lld = [];
+                  var regexp = /(![\w]+)(\":\")(online|offline)/g;
+                  var match = regexp.exec(value);
+                  var row = {};
+                  row["{#NODE}"] = match[1];
+                  lld.push(row);
+                  return JSON.stringify(lld);
+        - uuid: fe287bd7faa54fe4a24d9d2301943113
+          name: 'Meshtastic node telemetry discovery'
+          type: DEPENDENT
+          key: mesh.telem.disc
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#TYPE}'
+                value: ^telemetry
+                formulaid: A
+          item_prototypes:
+            - uuid: 0b3371b6258d40cbad0f39afad0f3e4c
+              name: '{#NODE} air_util_tx'
+              type: DEPENDENT
+              key: 'mesh.nodeAirUtilTX[{#NODE}]'
+              delay: '0'
+              value_type: FLOAT
+              units: volts
+              description: 'Air utilization for transmission'
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\"from\":{#NODEDEC}'
+                  error_handler: DISCARD_VALUE
+                - type: JSONPATH
+                  parameters:
+                    - '$[0].payload.air_util_tx'
+              master_item:
+                key: mesh.json
+              tags:
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+            - uuid: 1df2e00dca914148b24c644fec627889
+              name: '{#NODE} battery level'
+              type: DEPENDENT
+              key: 'mesh.nodeBat[{#NODE}]'
+              delay: '0'
+              units: '%'
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\"from\":{#NODEDEC}'
+                  error_handler: DISCARD_VALUE
+                - type: JSONPATH
+                  parameters:
+                    - '$[0].payload.battery_level'
+              master_item:
+                key: mesh.json
+              tags:
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+              trigger_prototypes:
+                - uuid: e332ac32ac554303a89bd73b7b1b836a
+                  expression: 'last(/Template App Meshtastic/mesh.nodeBat[{#NODE}])<50'
+                  name: 'Battery level below 50%'
+                  priority: AVERAGE
+                  tags:
+                    - tag: meshtastic
+                      value: 'node {#NODE}'
+            - uuid: cb984551476245dfbb0d35964c526160
+              name: '{#NODE} channel utilization'
+              type: DEPENDENT
+              key: 'mesh.nodeCU[{#NODE}]'
+              delay: '0'
+              value_type: FLOAT
+              units: '%'
+              description: 'Channel utilization'
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\"from\":{#NODEDEC}'
+                  error_handler: DISCARD_VALUE
+                - type: JSONPATH
+                  parameters:
+                    - '$[0].payload.channel_utilization'
+              master_item:
+                key: mesh.json
+              tags:
+                - tag: meshtastic
+                  value: 'channel utilization'
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+            - uuid: e61d7186606f447f87036ced40fabd60
+              name: '{#NODE} voltage'
+              type: DEPENDENT
+              key: 'mesh.nodeVolt[{#NODE}]'
+              delay: '0'
+              value_type: FLOAT
+              units: volts
+              preprocessing:
+                - type: MATCHES_REGEX
+                  parameters:
+                    - '\"from\":{#NODEDEC}'
+                  error_handler: DISCARD_VALUE
+                - type: JSONPATH
+                  parameters:
+                    - '$[0].payload.voltage'
+              master_item:
+                key: mesh.json
+              tags:
+                - tag: meshtastic
+                  value: 'node {#NODE}'
+          master_item:
+            key: mesh.json
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var obj = JSON.parse(value);
+                  var lld = [];
+                  var row = {};
+                  row["{#NODE}"] ="!"
+                  row["{#NODE}"] += obj[0]["from"].toString(16)
+                  row["{#NODEDEC}"] = obj[0]["from"]
+                  row["{#TYPE}"] = obj[0]["type"]
+                  lld.push(row);
+                  return JSON.stringify(lld);
+      macros:
+        - macro: '{$MQTTBROKER}'
+          description: 'broker url'
+        - macro: '{$MQTTPASSWORD}'
+          description: password
+        - macro: '{$MQTTTOPIC}'
+          description: topic
+        - macro: '{$MQTTUSER}'
+          description: user
+      valuemaps:
+        - uuid: ead69af7ecba43409d5d140249ce0ba7
+          name: Hardware
+          mappings:
+            - value: '0'
+              newvalue: UNSET
+            - value: '1'
+              newvalue: TLORA_V2
+            - value: '2'
+              newvalue: TLORA_V1
+            - value: '3'
+              newvalue: TLORA_V2_1_1P6
+            - value: '4'
+              newvalue: TBEAM
+            - value: '5'
+              newvalue: HELTEC_V2_0
+            - value: '6'
+              newvalue: TBEAM_V0P7
+            - value: '7'
+              newvalue: T_ECHO
+            - value: '8'
+              newvalue: TLORA_V1_1P3
+            - value: '9'
+              newvalue: RAK4631
+            - value: '10'
+              newvalue: HELTEC_V2_1
+            - value: '11'
+              newvalue: HELTEC_V1
+            - value: '12'
+              newvalue: LILYGO_TBEAM_S3_CORE
+            - value: '13'
+              newvalue: RAK11200
+            - value: '14'
+              newvalue: NANO_G1
+            - value: '15'
+              newvalue: TLORA_V2_1_1P8
+            - value: '16'
+              newvalue: TLORA_T3_S3
+            - value: '17'
+              newvalue: NANO_G1_EXPLORER
+            - value: '18'
+              newvalue: NANO_G2_ULTRA
+            - value: '19'
+              newvalue: LORA_TYPE
+            - value: '25'
+              newvalue: STATION_G1
+            - value: '26'
+              newvalue: RAK11310
+            - value: '27'
+              newvalue: SENSELORA_RP2040
+            - value: '28'
+              newvalue: SENSELORA_S3
+            - value: '29'
+              newvalue: CANARYONE
+            - value: '30'
+              newvalue: RP2040_LORA
+        - uuid: 5ff4b1ecf73045098426d4cab3cd5d54
+          name: Status
+          mappings:
+            - value: '1'
+              newvalue: online
+            - value: '0'
+              newvalue: offline
+    - uuid: e8397f69e4e44b78996c9175f9b8eb59
+      template: 'Template App Meshtastic Node'
+      name: 'Template App Meshtastic Node'
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: c9d8927a4f39426788a03887672c12bc
+          name: 'Meshtastic node latitude'
+          type: SCRIPT
+          key: mesh.nodeLat
+          trends: 180d
+          value_type: FLOAT
+          params: |
+            var params = JSON.parse(value);
+            var meshlat = params.meshlat;
+            return meshlat;
+          inventory_link: LOCATION_LAT
+          parameters:
+            - name: meshlat
+              value: '{$MESHLAT}'
+        - uuid: c78e316e44f046cd9c50338ca01a3c88
+          name: 'Meshtastic node longitude'
+          type: SCRIPT
+          key: mesh.nodeLong
+          trends: 180d
+          value_type: FLOAT
+          params: |
+            var params = JSON.parse(value);
+            var meshlong = params.meshlong;
+            return meshlong;
+          inventory_link: LOCATION_LON
+          parameters:
+            - name: meshlong
+              value: '{$MESHLONG}'
+      macros:
+        - macro: '{$NODE}'
+          value: '{#NODE}'
